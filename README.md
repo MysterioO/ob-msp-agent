@@ -7,6 +7,23 @@ A specialized learning sandbox for building an **SRE/Observability Assistant** a
 2. **Instrumentation Research:** Solve the "Observability for the Observer" problem. Since MCP servers communicate over **stdio**, traditional scraping (like Prometheus) doesn't work. This project demonstrates how to "push" signals (Spans, Metrics, Logs) out to an OTel Collector from a stdio-based process.
 
 ---
+## The "Mega-Prompt" Example
+Once your MCP server is running and connected to your AI assistant, you don't have to ask it one question at a time. Because the AI has access to your entire suite of tools across Metrics, Logs, Traces, and Alerts, you can give it a high-level objective and let it do the heavy lifting.
+
+Copy and paste this exact prompt into your AI assistant during a simulated incident to see the magic happen:
+
+"We are getting customer reports of intermittent failures on the checkout service. Please investigate this end-to-end:
+
+1. Check if any relevant alerts are currently firing.
+2. Look at the latency and error rate trends for the checkout service over the last 45 minutes.
+3. If latency is high, find the slowest traces for this time window.
+4. Take the trace ID of the slowest request and pull the exact error logs associated with it.
+5. Once you have a hypothesis for the root cause, post a structured incident summary to the Slack channel and create an annotation in Grafana to mark that we are investigating."
+
+**How the AI handles this:**
+The agent will intelligently chain your MCP tools together. It will start with get_active_alerts, move to query_metrics_range, use find_slow_traces to get a Trace ID, feed that ID directly into query_logs_by_trace_id, and finally wrap up with post_incident_summary and create_annotation.
+
+---
 
 ## The Challenge: Monitoring the Monitor
 
