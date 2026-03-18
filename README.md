@@ -1,6 +1,6 @@
-# SRE MCP Server (Go)
+# Monitoring MCP Server (Sandbox)
 
-A production-grade MCP server written in Go that gives AI agents (Claude or any MCP-compatible host) direct, instrumented access to your observability stack.
+A learning project and sandbox designed to explore the Model Context Protocol (MCP) by giving AI agents (like Claude) access to an observability stack. This is **not** a production-ready server; it is a tool for experimentation and learning how to build and instrument MCP servers for SRE use cases.
 
 ## Stack integration
 
@@ -20,17 +20,14 @@ All tool calls are instrumented with OpenTelemetry — every invocation produces
 ## Project layout
 
 ```
-sre-mcp-server/
-├── cmd/server/
-│   ├── main.go          # MCP server setup, tool registration
-│   └── helpers.go       # JSON / OTel convenience helpers
+monitoring-mcp-server/
+├── main.go              # MCP server setup, tool registration
 ├── internal/
 │   ├── config/
 │   │   └── config.go    # Env-driven config; no hardcoded values
 │   ├── otel/
 │   │   ├── provider.go  # TracerProvider + MeterProvider over gRPC
-│   │   ├── middleware.go # Wrap() — OTel instrumentation for every tool call
-│   │   └── helpers.go   # SpanStartOption helpers
+│   │   └── middleware.go # Wrap() — OTel instrumentation for every tool call
 │   └── tools/
 │       ├── metrics.go   # PromQL instant + range queries
 │       ├── logs.go      # LogQL instant + range + trace-ID correlation
@@ -39,14 +36,12 @@ sre-mcp-server/
 │       ├── slack.go     # Slack message + incident summary
 │       ├── grafana.go   # Dashboard search, annotations
 │       ├── http.go      # Shared HTTP client
-│       └── util.go      # requireString, postJSON helpers
-├── deployments/
-│   ├── docker-compose.yml          # Container deployment
-│   ├── otel-collector-config.yaml  # Merge into your existing collector config
-│   ├── grafana-dashboard.json      # Import into Grafana
-│   ├── prometheus-rules.yaml       # Alerting rules for the server itself
-│   └── claude-mcp-config.json      # Claude Desktop wiring
+│       └── utils.go     # Helper functions
 ├── Dockerfile
+├── docker-compose.yml
+├── otel-collector-config.yaml
+├── prometheus-rules.yaml
+├── claude-mcp-config.json
 └── go.mod
 ```
 
@@ -56,7 +51,7 @@ sre-mcp-server/
 
 - Go 1.22+
 - An OTel Collector reachable over gRPC (default: `localhost:4317`)
-- At minimum one of: `THANOS_QUERY_URL` or `PROMETHEUS_URL`
+- Access to your observability endpoints (Prometheus, Loki, Tempo, etc.)
 
 ---
 
@@ -65,54 +60,45 @@ sre-mcp-server/
 ```bash
 # Local
 go mod tidy
-go build -o sre-mcp-server ./cmd/server
-./sre-mcp-server
+go build -o monitoring-mcp-server .
+./monitoring-mcp-server
 
 # Docker
-docker build -t sre-mcp-server .
-docker run --env-file .env sre-mcp-server
+docker build -t monitoring-mcp-server .
+docker run --env-file .env monitoring-mcp-server
 
-# Docker Compose (adjusts URLs in deployments/docker-compose.yml first)
-cd deployments && docker compose up -d
+# Docker Compose
+docker compose up -d
 ```
 
 ---
 
 ## Configuration
 
-All configuration is via environment variables. Copy `.env.example` to `.env`:
+All configuration is via environment variables.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `THANOS_QUERY_URL` | one of two | — | Thanos Query endpoint (preferred) |
-| `PROMETHEUS_URL` | one of two | `http://localhost:9090` | Prometheus fallback |
-| `LOKI_URL` | no | `http://localhost:3100` | Loki endpoint |
-| `TEMPO_URL` | no | `http://localhost:3200` | Tempo endpoint |
-| `ALERTMANAGER_URL` | no | `http://localhost:9093` | Alertmanager endpoint |
-| `GRAFANA_URL` | no | `http://localhost:3000` | Grafana endpoint |
-| `GRAFANA_API_TOKEN` | no | — | Grafana service account token |
-| `SLACK_BOT_TOKEN` | no | — | Slack bot OAuth token (`xoxb-…`) |
-| `SLACK_DEFAULT_CHANNEL` | no | `#sre-agent` | Default Slack channel |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | no | `localhost:4317` | OTel Collector gRPC endpoint |
-| `OTEL_SERVICE_NAME` | no | `sre-mcp-server` | Service name in traces/metrics |
-| `QUERY_TIMEOUT_SECONDS` | no | `30` | HTTP client timeout per tool call |
-| `LOG_LEVEL` | no | `info` | `debug` or `info` |
+| `METRICS_URL` | Yes | `http://localhost:9090` | Prometheus/Thanos endpoint |
+| `LOKI_URL` | No | `http://localhost:3100` | Loki endpoint |
+| `TEMPO_URL` | No | `http://localhost:3200` | Tempo endpoint |
+| `ALERTMANAGER_URL` | No | `http://localhost:9093` | Alertmanager endpoint |
+| `GRAFANA_URL` | No | `http://localhost:3000` | Grafana endpoint |
+| `GRAFANA_API_TOKEN` | No | — | Grafana service account token |
+| `SLACK_BOT_TOKEN` | No | — | Slack bot OAuth token (`xoxb-…`) |
+| `SLACK_DEFAULT_CHANNEL` | No | — | Default Slack channel |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | No | — | OTel Collector gRPC endpoint (e.g. `localhost:4317`) |
+| `OTEL_SERVICE_NAME` | No | `monitoring-mcp` | Service name in traces/metrics |
+| `QUERY_TIMEOUT` | No | `10s` | Duration timeout for queries (e.g. `30s`, `1m`) |
+| `LOG_LEVEL` | No | `info` | `debug` or `info` |
 
 ---
 
 ## Wire into Claude Desktop
 
-1. Build the binary: `go build -o sre-mcp-server ./cmd/server`
-2. Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) and merge the content from `deployments/claude-mcp-config.json`, updating the `command` path and your real endpoint URLs.
+1. Build the binary: `go build -o monitoring-mcp-server .`
+2. Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) and merge the content from `claude-mcp-config.json`, updating the `command` path to the absolute path of your binary and your real endpoint URLs.
 3. Restart Claude Desktop.
-
----
-
-## Grafana setup
-
-1. **Import dashboard**: Grafana → Dashboards → Import → upload `deployments/grafana-dashboard.json`
-2. **Alerting rules**: Add `deployments/prometheus-rules.yaml` to your Prometheus `rule_files` and reload.
-3. **OTel Collector**: Merge `deployments/otel-collector-config.yaml` into your existing collector config — it adds the Loki log exporter and tags MCP-server signals with `tool_name` labels.
 
 ---
 
@@ -135,33 +121,17 @@ than 2s, get the full span tree for the worst one, then check if there
 are any deployment annotations in Grafana around that time.
 ```
 
-**Maintenance prep:**
-```
-I'm deploying a breaking schema migration to the users-service at 22:00.
-Create a 2-hour silence for UserServiceErrorRate alerts and post a
-heads-up to #sre-oncall.
-```
-
-**Cross-signal correlation:**
-```
-Here's a trace ID from a customer complaint: abc123def456.
-Pull the logs for that trace, find the slow span, and check if the
-relevant service had any metric anomalies in the surrounding 10 minutes.
-```
-
 ---
 
 ## Extending with new tools
 
 1. Add a new file in `internal/tools/` implementing a struct with methods matching `func(ctx context.Context, args map[string]any) (any, error)`.
-2. Register the tool in `cmd/server/main.go` using `s.AddTool(mcp.NewTool(...), handler)`.
+2. Register the tool in `main.go` using `s.AddTool(mcp.NewTool(...), handler)`.
 3. Wrap the handler with `wrap("tool_name", yourTool.Method)` — OTel instrumentation is automatic.
 
 ---
 
 ## Security notes
 
-- The Grafana API token and Slack bot token are **never logged** — they only appear in the `Authorization` header of outbound requests.
-- The binary runs as UID 65534 (nobody) in the Docker image and has `--read-only` filesystem.
-- All Linux capabilities are dropped in the Docker Compose config.
-- The server communicates with Claude over **stdio** — no open ports.
+- The Grafana API token and Slack bot token are **never logged**.
+- The server communicates with Claude over **stdio** — no open ports required for MCP.
