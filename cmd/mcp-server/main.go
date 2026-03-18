@@ -13,9 +13,9 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
 
-	"github.com/yourorg/sre-mcp-server/internal/config"
-	sreotel "github.com/yourorg/sre-mcp-server/internal/otel"
-	"github.com/yourorg/sre-mcp-server/internal/tools"
+	"github.com/MysterioO/ob-msp-agent/internal/config"
+	sreotel "github.com/MysterioO/ob-msp-agent/internal/otel"
+	"github.com/MysterioO/ob-msp-agent/internal/tools"
 )
 
 func main() {

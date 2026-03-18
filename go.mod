@@ -1,4 +1,4 @@
-module github.com/yourorg/sre-mcp-server
+module github.com/MysterioO/ob-msp-agent
 
 go 1.23
 
