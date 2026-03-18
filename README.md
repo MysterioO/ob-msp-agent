@@ -3,10 +3,8 @@
 A specialized learning sandbox for building an **SRE/Observability Assistant** and researching the unique challenges of instrumenting MCP servers.
 
 ## The Mission
-1. **Agent Capabilities:** Give AI agents (like Gemini or Claude) "eyes" into an observability stack (Metrics, Logs, Traces) so they can assist with incident triage, latency investigation, and maintenance.
+1. **Agent Capabilities:** Give AI agents (like Gemini, Claude, or Cursor) "eyes" into an observability stack (Metrics, Logs, Traces) so they can assist with incident triage, latency investigation, and maintenance.
 2. **Instrumentation Research:** Solve the "Observability for the Observer" problem. Since MCP servers communicate over **stdio**, traditional scraping (like Prometheus) doesn't work. This project demonstrates how to "push" signals (Spans, Metrics, Logs) out to an OTel Collector from a stdio-based process.
-
-> **Research Reference:** Inspired by [Monitoring MCP Servers with Prometheus and Grafana](https://medium.com/@vishaly650/monitoring-mcp-servers-with-prometheus-and-grafana-8671292e6351).
 
 ---
 
@@ -37,22 +35,47 @@ Monitoring an MCP server is tricky because:
 
 ---
 
-## Build & Run
+## Development & Testing
 
+### 1. Build & Run Locally
 ```bash
-# 1. Build the binary
+# Build the binary
 go build -o mcp-server .
 
-# 2. Run local observability stack (Collector, Prometheus, Loki, Tempo, Grafana)
-docker compose up -d
+# Run the unit tests (Mocked HTTP calls)
+go test -v ./internal/tools/...
+```
 
-# 3. Test with the MCP Inspector (Web UI)
+### 2. Manual Verification (MCP Inspector)
+The MCP Inspector provides a web UI to manually trigger tools and see their JSON-RPC request/response.
+```bash
 npx @modelcontextprotocol/inspector ./mcp-server
 ```
 
 ---
 
+## Deployment & Docker
+
+### Local Observability Stack
+The provided `docker-compose.yaml` (coming soon/referenced) can be used to spin up a local development stack:
+```bash
+# Start the OTel Collector, Prometheus, Loki, Tempo, and Grafana
+docker compose up -d
+```
+
+### Containerizing the Server
+The `Dockerfile` provides a multi-stage build resulting in a minimal `scratch`-based image:
+```bash
+# Build the production image
+docker build -t sre-mcp-server .
+```
+
+---
+
 ## Integration
+
+### Generic Configuration Template
+A template for your agent configuration is provided in `mcp-config.json`. Use this to configure Gemini CLI, Claude Desktop, or Cursor.
 
 ### Gemini CLI
 Add this to your `~/.gemini/settings.json`:
@@ -85,3 +108,5 @@ Add this to your `~/.gemini/settings.json`:
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `localhost:4317` | OTel Collector gRPC endpoint |
 | `QUERY_TIMEOUT` | `10s` | Global timeout for all observability queries |
 | `LOG_LEVEL` | `info` | `debug` or `info` |
+| `SLACK_BOT_TOKEN` | - | Required for Slack notifications |
+| `GRAFANA_API_TOKEN` | - | Required for Grafana annotations |
