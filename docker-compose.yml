@@ -1,0 +1,83 @@
+# docker-compose.yml
+# Runs the SRE MCP server. Assumes your existing Grafana / Loki / Tempo /
+# Thanos / Prometheus / Alertmanager stack is already running and reachable
+# at the URLs configured via environment variables below.
+#
+# If your stack is in a separate Compose project, use `external: true` on a
+# shared network, or set the URLs to your real hostnames/load balancer addresses.
+
+version: "3.9"
+
+services:
+
+  sre-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sre-mcp-server
+    restart: unless-stopped
+
+    environment:
+      # ── Server identity ────────────────────────────────────────────────
+      SERVER_NAME: "sre-mcp-server"
+      SERVER_VERSION: "0.1.0"
+      LOG_LEVEL: "info"
+
+      # ── OTel collector (gRPC) ──────────────────────────────────────────
+      # Point this at your existing OTel collector.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "otel-collector:4317"
+      OTEL_SERVICE_NAME: "sre-mcp-server"
+
+      # ── Thanos / Prometheus ────────────────────────────────────────────
+      # THANOS_QUERY_URL takes precedence over PROMETHEUS_URL.
+      THANOS_QUERY_URL: "http://thanos-query:9090"
+      PROMETHEUS_URL: "http://prometheus:9090"
+
+      # ── Loki ──────────────────────────────────────────────────────────
+      LOKI_URL: "http://loki:3100"
+
+      # ── Tempo ─────────────────────────────────────────────────────────
+      TEMPO_URL: "http://tempo:3200"
+
+      # ── Alertmanager ──────────────────────────────────────────────────
+      ALERTMANAGER_URL: "http://alertmanager:9093"
+
+      # ── Grafana ───────────────────────────────────────────────────────
+      GRAFANA_URL: "http://grafana:3000"
+      GRAFANA_API_TOKEN: "${GRAFANA_API_TOKEN}"          # inject via .env
+
+      # ── Slack ─────────────────────────────────────────────────────────
+      SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}"               # inject via .env
+      SLACK_DEFAULT_CHANNEL: "#sre-agent"
+
+      # ── Timeouts ──────────────────────────────────────────────────────
+      QUERY_TIMEOUT_SECONDS: "30"
+
+    # The MCP server communicates over stdio, not a TCP port.
+    # Expose a metrics port only if you add a Prometheus /metrics endpoint later.
+    # ports:
+    #   - "9100:9100"
+
+    networks:
+      - observability
+
+    # Drop all Linux capabilities — this server needs no elevated privileges.
+    cap_drop:
+      - ALL
+
+    read_only: true
+
+    # Health: attempt to run the binary with --version (add a flag to main if needed).
+    # For now, just use a process check.
+    # healthcheck:
+    #   test: ["CMD", "pgrep", "sre-mcp-server"]
+    #   interval: 30s
+    #   timeout: 5s
+    #   retries: 3
+
+networks:
+  observability:
+    # If your existing stack already defines this network, set external: true.
+    external: false
+    # external: true
+    # name: your_existing_network_name

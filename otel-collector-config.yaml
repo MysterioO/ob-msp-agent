@@ -1,0 +1,103 @@
+# otel-collector-config.yaml
+#
+# Drop this alongside your existing OTel Collector config, or merge the
+# relevant receivers/exporters/pipelines into it.
+#
+# This config receives OTLP from the sre-mcp-server and fans out:
+#   Traces  → Tempo
+#   Metrics → Prometheus remote-write → Thanos
+#   Logs    → Loki
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  # Batch telemetry before exporting to reduce network overhead.
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+  # Tag every signal with the environment so Grafana dashboards can filter.
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: production
+        action: upsert
+
+  # Drop internal health-check spans to keep Tempo clean.
+  filter/drop_health:
+    traces:
+      span:
+        - 'attributes["http.target"] == "/healthz"'
+
+  # Memory limiter — prevent OOM if a burst of telemetry arrives.
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+exporters:
+
+  # ── Traces → Tempo ──────────────────────────────────────────────────────────
+  otlp/tempo:
+    endpoint: "tempo:4317"
+    tls:
+      insecure: true
+
+  # ── Metrics → Prometheus remote-write (Thanos sidecar picks this up) ────────
+  prometheusremotewrite:
+    endpoint: "http://prometheus:9090/api/v1/write"
+    tls:
+      insecure_skip_verify: false
+    resource_to_telemetry_conversion:
+      enabled: true  # Promote resource attrs to metric labels
+
+  # ── Logs → Loki ─────────────────────────────────────────────────────────────
+  loki:
+    endpoint: "http://loki:3100/loki/api/v1/push"
+    tls:
+      insecure: true
+    default_labels_enabled:
+      exporter: false
+      job: true
+      instance: false
+      level: true
+    labels:
+      resource:
+        service.name: "service_name"
+        deployment.environment: "env"
+      attributes:
+        mcp.tool.name: "tool_name"
+
+  # ── Debug (disable in production) ───────────────────────────────────────────
+  # debug:
+  #   verbosity: detailed
+
+service:
+  pipelines:
+
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, filter/drop_health, resource, batch]
+      exporters: [otlp/tempo]
+
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [prometheusremotewrite]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [loki]
+
+  telemetry:
+    logs:
+      level: "warn"
+    metrics:
+      address: "0.0.0.0:8888"  # OTel Collector self-metrics — scrape with Prometheus
