@@ -1,5 +1,5 @@
 # Binaries
-mcp-server
+/mcp-server
 mcp-server.exe
 *.exe
 *.exe~
