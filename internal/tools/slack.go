@@ -16,6 +16,7 @@ import (
 type SlackTool struct {
 	token      string
 	defaultChn string
+	baseURL    string
 	hc         *httpClient
 }
 
@@ -23,6 +24,7 @@ func NewSlackTool(token, defaultChannel string, timeout time.Duration) *SlackToo
 	return &SlackTool{
 		token:      token,
 		defaultChn: defaultChannel,
+		baseURL:    "https://slack.com",
 		hc:         newHTTPClient(timeout),
 	}
 }
@@ -100,8 +102,9 @@ func (t *SlackTool) PostMessage(ctx context.Context, args map[string]any) (any, 
 		return nil, fmt.Errorf("post_slack_message: marshal: %w", err)
 	}
 
+	endpoint := fmt.Sprintf("%s/api/chat.postMessage", t.baseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"https://slack.com/api/chat.postMessage", bytes.NewReader(body))
+		endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("post_slack_message: build request: %w", err)
 	}
