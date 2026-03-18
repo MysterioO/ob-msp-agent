@@ -31,4 +31,4 @@ Thumbs.db
 # Config / Secrets (if any)
 .env
 local.json
-claude-mcp-config.json
+mcp-config.json
