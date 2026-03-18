@@ -1,8 +1,30 @@
 # Monitoring MCP Server (Sandbox)
 
-A learning project and sandbox designed to explore the Model Context Protocol (MCP) by giving AI agents (like Claude) access to an observability stack. This is **not** a production-ready server; it is a tool for experimentation and learning how to build and instrument MCP servers for SRE use cases.
+A specialized learning sandbox for building and instrumenting an **SRE/Observability Assistant**. 
 
-## Stack integration
+The goal of this project is twofold:
+1. **Agent Capabilities:** Give AI agents (like Claude) "eyes" into an observability stack (Metrics, Logs, Traces) so they can assist with incident triage, latency investigation, and maintenance tasks.
+2. **Instrumentation Research:** Explore how to properly monitor the MCP server itself. Since MCP servers typically communicate over **stdio**, they can't be "scraped" by Prometheus in the traditional way. This project demonstrates how to use OpenTelemetry to "push" signals out to a collector.
+
+> **Research Reference:** This sandbox explores concepts similar to those discussed in [Monitoring MCP Servers with Prometheus and Grafana](https://medium.com/@vishaly650/monitoring-mcp-servers-with-prometheus-and-grafana-8671292e6351), specifically focusing on the challenges of observing short-lived or stdio-based tool calls.
+
+---
+
+## The "Observability for the Observer" Challenge
+
+Monitoring an MCP server is tricky because:
+- **Stdio Communication:** Traditional HTTP-based health checks and Prometheus scraping don't apply.
+- **Tool-Level Granularity:** We need to know which specific tool (e.g., `query_metrics`) is failing or slow, not just that the process is "up."
+- **Trace Context:** To truly debug an agent's reasoning, we need to correlate its tool calls with the actual signals it's retrieving.
+
+This server implements **Full-Stack Self-Observation**:
+- Every tool call produces a **Span** sent to Tempo.
+- Execution metrics (duration, errors, count) are pushed to the OTel Collector.
+- Structured logs are sent to Loki, tagged with the `tool_name`.
+
+---
+
+## Stack Integration
 
 | Signal  | Backend                     | Tool(s)                                          |
 |---------|-----------------------------|--------------------------------------------------|
@@ -13,35 +35,20 @@ A learning project and sandbox designed to explore the Model Context Protocol (M
 | Notify  | Slack Web API               | `post_slack_message`, `post_incident_summary`    |
 | Grafana | Grafana HTTP API            | `search_dashboards`, `get_annotations`, `create_annotation` |
 
-All tool calls are instrumented with OpenTelemetry — every invocation produces a **span** (→ Tempo), **metrics** (→ Prometheus/Thanos via OTel Collector), and structured **logs** (→ Loki). The server monitors itself through your existing stack with zero extra infrastructure.
-
 ---
 
-## Project layout
+## Project Layout
 
 ```
 monitoring-mcp-server/
 ├── main.go              # MCP server setup, tool registration
 ├── internal/
-│   ├── config/
-│   │   └── config.go    # Env-driven config; no hardcoded values
-│   ├── otel/
-│   │   ├── provider.go  # TracerProvider + MeterProvider over gRPC
-│   │   └── middleware.go # Wrap() — OTel instrumentation for every tool call
-│   └── tools/
-│       ├── metrics.go   # PromQL instant + range queries
-│       ├── logs.go      # LogQL instant + range + trace-ID correlation
-│       ├── traces.go    # TraceQL search, get, slow-trace finder
-│       ├── alerts.go    # Alertmanager alerts + silences
-│       ├── slack.go     # Slack message + incident summary
-│       ├── grafana.go   # Dashboard search, annotations
-│       ├── http.go      # Shared HTTP client
-│       └── utils.go     # Helper functions
+│   ├── config/          # Env-driven configuration
+│   ├── otel/            # OTel provider & Middleware for stdio-based monitoring
+│   └── tools/           # Implementation of observability queries
+├── deployments/         # Docker, OTel Collector, and Grafana configs
 ├── Dockerfile
 ├── docker-compose.yml
-├── otel-collector-config.yaml
-├── prometheus-rules.yaml
-├── claude-mcp-config.json
 └── go.mod
 ```
 
