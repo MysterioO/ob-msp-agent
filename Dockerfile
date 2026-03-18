@@ -15,7 +15,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-s -w -X main.version=${VERSION:-dev}" \
     -trimpath \
     -o /sre-mcp-server \
-    ./cmd/server
+    ./cmd/mcp-server
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM scratch

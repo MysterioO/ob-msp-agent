@@ -40,7 +40,7 @@ Monitoring an MCP server is tricky because:
 ### 1. Build & Run Locally
 ```bash
 # Build the binary
-go build -o mcp-server .
+go build -o mcp-server ./cmd/mcp-server
 
 # Run the unit tests (Mocked HTTP calls)
 go test -v ./internal/tools/...
@@ -75,7 +75,7 @@ docker build -t sre-mcp-server .
 ## Integration
 
 ### Generic Configuration Template
-A template for your agent configuration is provided in `mcp-config.json`. Use this to configure Gemini CLI, Claude Desktop, or Cursor.
+A template for your agent configuration is provided in `configs/mcp-config.json.example`. Use this to configure Gemini CLI, Claude Desktop, or Cursor.
 
 ### Gemini CLI
 Add this to your `~/.gemini/settings.json`:
