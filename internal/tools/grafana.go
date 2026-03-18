@@ -173,5 +173,9 @@ func (t *GrafanaTool) CreateAnnotation(ctx context.Context, args map[string]any)
 	}
 
 	// Use a small helper to POST JSON since our httpClient only does GET.
-	return postJSON(ctx, t.hc, fmt.Sprintf("%s/api/annotations", t.grafanaURL), t.authHeader(), payload)
+	err = postJSON(ctx, t.hc, fmt.Sprintf("%s/api/annotations", t.grafanaURL), t.authHeader(), payload)
+	if err != nil {
+		return nil, err
+	}
+	return "Annotation created successfully", nil
 }
