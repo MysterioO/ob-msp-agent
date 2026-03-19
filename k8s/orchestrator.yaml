@@ -1,0 +1,187 @@
+# -----------------------------------------------------------------------------
+# 1. Service Account (Workload Identity)
+# Links the Kubernetes pod to your Google Cloud Service Account.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sre-agent-ksa
+  namespace: observability
+  annotations:
+    # REPLACE 
+    iam.gke.io/gcp-service-account: YOUR_GSA@YOUR_PROJECT.iam.gserviceaccount.com
+
+---
+# -----------------------------------------------------------------------------
+# 2. SecretProviderClass (CSI Driver)
+# Fetches secrets from GCP Secret Manager and syncs them into a K8s Secret.
+# -----------------------------------------------------------------------------
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: sre-agent-secrets-provider
+  namespace: observability
+spec:
+  provider: gcp
+  secretObjects:
+  - secretName: sre-agent-secrets
+    type: Opaque
+    data:
+    - objectName: ai-api-key
+      key: AI_API_KEY
+    - objectName: slack-bot-token
+      key: SLACK_BOT_TOKEN
+    - objectName: grafana-api-token
+      key: GRAFANA_API_TOKEN
+  parameters:
+    secrets: |
+      # REPLACE YOUR_PROJECT_ID with your GCP Project ID
+      - resourceName: "projects/YOUR_PROJECT_ID/secrets/ai-api-key/versions/latest"
+        path: "ai-api-key"
+      - resourceName: "projects/YOUR_PROJECT_ID/secrets/slack-bot-token/versions/latest"
+        path: "slack-bot-token"
+      - resourceName: "projects/YOUR_PROJECT_ID/secrets/grafana-api-token/versions/latest"
+        path: "grafana-api-token"
+
+---
+# -----------------------------------------------------------------------------
+# 3. Deployment
+# Runs the Orchestrator, mounts the secrets, and sets environment variables.
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sre-orchestrator
+  namespace: observability
+  labels:
+    app: sre-orchestrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sre-orchestrator
+  template:
+    metadata:
+      labels:
+        app: sre-orchestrator
+    spec:
+      serviceAccountName: sre-agent-ksa
+      containers:
+      - name: orchestrator
+        # REPLACE 
+        image: us-central1-docker.pkg.dev/YOUR_PROJECT_ID/YOUR_REPO/sre-mcp-server:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        # --- Internal Stack URLs ---
+        - name: THANOS_QUERY_URL
+          value: "http://thanos-query.observability.svc.cluster.local:9090"
+        - name: LOKI_URL
+          value: "http://loki.observability.svc.cluster.local:3100"
+        - name: TEMPO_URL
+          value: "http://tempo.observability.svc.cluster.local:3200"
+        - name: ALERTMANAGER_URL
+          value: "http://alertmanager.observability.svc.cluster.local:9093"
+        - name: GRAFANA_URL
+          value: "http://grafana.observability.svc.cluster.local:3000"
+        
+        # --- OTel Telemetry ---
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "otel-collector.observability.svc.cluster.local:4317"
+        - name: OTEL_SERVICE_NAME
+          value: "sre-orchestrator"
+        
+        # --- Secrets dynamically injected from the CSI Sync ---
+        - name: AI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: sre-agent-secrets
+              key: AI_API_KEY
+        - name: SLACK_BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: sre-agent-secrets
+              key: SLACK_BOT_TOKEN
+        - name: GRAFANA_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: sre-agent-secrets
+              key: GRAFANA_API_TOKEN
+
+        # Mount the CSI volume to trigger the K8s Secret sync
+        volumeMounts:
+        - mountPath: "/mnt/secrets-store"
+          name: secrets-volume
+          readOnly: true
+
+      volumes:
+      - name: secrets-volume
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: "sre-agent-secrets-provider"
+
+---
+# -----------------------------------------------------------------------------
+# 4. Service
+# Exposes the pod internally on port 80.
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: sre-orchestrator-svc
+  namespace: observability
+spec:
+  selector:
+    app: sre-orchestrator
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: ClusterIP
+
+---
+# -----------------------------------------------------------------------------
+# 5. Managed Certificate
+# Tells GCP to provision an SSL cert for your domain.
+# -----------------------------------------------------------------------------
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: sre-agent-cert
+  namespace: observability
+spec:
+  domains:
+    # REPLACE 
+    - sre-agent.your-company.com
+
+---
+# -----------------------------------------------------------------------------
+# 6. Ingress
+# Creates the GCP Load Balancer and routes Slack's traffic to your service.
+# -----------------------------------------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sre-orchestrator-ingress
+  namespace: observability
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    networking.gke.io/managed-certificates: "sre-agent-cert"
+    kubernetes.io/ingress.allow-http: "false"
+spec:
+  rules:
+  # REPLACE 
+  - host: sre-agent.your-company.com
+    http:
+      paths:
+      - path: /slack/events
+        pathType: Exact
+        backend:
+          service:
+            name: sre-orchestrator-svc
+            port:
+              number: 80

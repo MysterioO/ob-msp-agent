@@ -31,14 +31,15 @@ func NewSlackTool(token, defaultChannel string, timeout time.Duration) *SlackToo
 
 type slackMessage struct {
 	Channel     string            `json:"channel"`
+	ThreadTS    string            `json:"thread_ts,omitempty"` // Added for thread replies
 	Text        string            `json:"text,omitempty"`
 	Blocks      []slackBlock      `json:"blocks,omitempty"`
 	Attachments []slackAttachment `json:"attachments,omitempty"`
 }
 
 type slackBlock struct {
-	Type string         `json:"type"`
-	Text *slackTextObj  `json:"text,omitempty"`
+	Type string        `json:"type"`
+	Text *slackTextObj `json:"text,omitempty"`
 	// Fields used for section blocks with multiple items
 }
 
@@ -55,10 +56,11 @@ type slackAttachment struct {
 // PostMessage posts a Slack message.
 // args:
 //
-//	channel  string  (optional) — defaults to configured default channel
-//	text     string  (required) — message text; supports Slack mrkdwn
-//	color    string  (optional) — "good", "warning", "danger" or hex; triggers attachment style
-//	title    string  (optional) — bold title rendered above the text
+//	channel   string  (optional) — defaults to configured default channel
+//	text      string  (required) — message text; supports Slack mrkdwn
+//	color     string  (optional) — "good", "warning", "danger" or hex; triggers attachment style
+//	title     string  (optional) — bold title rendered above the text
+//	thread_ts string  (optional) — timestamp of the parent message to reply in a thread
 func (t *SlackTool) PostMessage(ctx context.Context, args map[string]any) (any, error) {
 	if t.token == "" {
 		return nil, fmt.Errorf("post_slack_message: SLACK_BOT_TOKEN is not configured")
@@ -75,6 +77,11 @@ func (t *SlackTool) PostMessage(ctx context.Context, args map[string]any) (any, 
 	}
 
 	msg := slackMessage{Channel: channel}
+
+	// Support for replying in a thread
+	if threadTS, ok := args["thread_ts"].(string); ok && threadTS != "" {
+		msg.ThreadTS = threadTS
+	}
 
 	// If a color or title is provided, use an attachment for richer formatting.
 	color, hasColor := args["color"].(string)
@@ -149,6 +156,7 @@ func (t *SlackTool) PostMessage(ctx context.Context, args map[string]any) (any, 
 //	summary   string (required) — investigation findings in mrkdwn
 //	trace_url string (optional) — link to representative trace in Grafana/Tempo
 //	runbook   string (optional) — runbook URL
+//	thread_ts string (optional) — timestamp of the parent message to reply in a thread
 func (t *SlackTool) PostIncidentSummary(ctx context.Context, args map[string]any) (any, error) {
 	severity, _ := args["severity"].(string)
 	title, err := requireString(args, "title")
@@ -179,10 +187,11 @@ func (t *SlackTool) PostIncidentSummary(ctx context.Context, args map[string]any
 	}
 
 	return t.PostMessage(ctx, map[string]any{
-		"channel": args["channel"],
-		"title":   fmt.Sprintf(":%s: %s", severityEmoji(severity), title),
-		"text":    text,
-		"color":   color,
+		"channel":   args["channel"],
+		"thread_ts": args["thread_ts"], // Pass the thread timestamp down
+		"title":     fmt.Sprintf(":%s: %s", severityEmoji(severity), title),
+		"text":      text,
+		"color":     color,
 	})
 }
 
