@@ -1,33 +1,17 @@
-# Monitoring MCP Server (Sandbox)
+**Work in Progress**
+# Autonomous SRE Agent (Monitoring MCP Sandbox)
 
-A specialized learning sandbox for building an **SRE/Observability Assistant** and researching the unique challenges of instrumenting MCP servers.
+A specialized learning sandbox for building an **Event-Driven SRE Assistant** and researching the unique challenges of instrumenting Model Context Protocol (MCP) servers.
 
 ## The Mission
-1. **Agent Capabilities:** Give AI agents (like Gemini, Claude, or Cursor) "eyes" into an observability stack (Metrics, Logs, Traces) so they can assist with incident triage, latency investigation, and maintenance.
-2. **Instrumentation Research:** Solve the "Observability for the Observer" problem. Since MCP servers communicate over **stdio**, traditional scraping (like Prometheus) doesn't work. This project demonstrates how to "push" signals (Spans, Metrics, Logs) out to an OTel Collector from a stdio-based process.
+1. **The Autopilot (Event-Driven):** Go beyond manual chat. This project listens to firing alerts (via Slack webhooks), automatically spins up an AI agent to investigate across your observability stack, and posts a root-cause hypothesis as a threaded reply to the original alert.
+2. **The Copilot (Manual):** Give AI agents (like Gemini, Claude, or Cursor) "eyes" into an observability stack (Metrics, Logs, Traces) so engineers can manually prompt them during incident triage.
+3. **Instrumentation Research:** Solve the "Observability for the Observer" problem. This project demonstrates how to "push" signals (Spans, Metrics, Logs) out to an OTel Collector from a stdio-based process.
 
 ---
-## The "Mega-Prompt" Example
-Once your MCP server is running and connected to your AI assistant, you don't have to ask it one question at a time. Because the AI has access to your entire suite of tools across Metrics, Logs, Traces, and Alerts, you can give it a high-level objective and let it do the heavy lifting.
-
-Copy and paste this exact prompt into your AI assistant during a simulated incident to see the magic happen:
-
-"We are getting customer reports of intermittent failures on the checkout service. Please investigate this end-to-end:
-
-1. Check if any relevant alerts are currently firing.
-2. Look at the latency and error rate trends for the checkout service over the last 45 minutes.
-3. If latency is high, find the slowest traces for this time window.
-4. Take the trace ID of the slowest request and pull the exact error logs associated with it.
-5. Once you have a hypothesis for the root cause, post a structured incident summary to the Slack channel and create an annotation in Grafana to mark that we are investigating."
-
-**How the AI handles this:**
-The agent will intelligently chain your MCP tools together. It will start with get_active_alerts, move to query_metrics_range, use find_slow_traces to get a Trace ID, feed that ID directly into query_logs_by_trace_id, and finally wrap up with post_incident_summary and create_annotation.
-
----
-
 ## The Challenge: Monitoring the Monitor
 
-Monitoring an MCP server is tricky because:
+Monitoring an AI Agent and its underlying MCP server is tricky because:
 - **Stdio is a Black Box:** You can't use standard HTTP health checks or `/metrics` endpoints.
 - **Tool-Level Granularity:** You need to know which specific tool (e.g., `query_logs`) is slow or failing, not just that the process is running.
 - **Trace Correlation:** Debugging an agent requires seeing the exact signals (logs/metrics) it retrieved during a specific reasoning step.
@@ -35,7 +19,30 @@ Monitoring an MCP server is tricky because:
 **This sandbox implements Full-Stack Self-Observation:**
 - **Traces:** Every tool call creates a span in Tempo.
 - **Metrics:** Duration, errors, and counts are pushed to the OTel Collector.
-- **Logs:** Structured logs are sent to Loki, tagged with the `tool_name`.
+- **Logs:** Structured logs are sent to Loki, tagged with the `mcp.tool.name`.
+---
+
+## Architecture: The Two Brains
+
+This repository builds **two** distinct binaries that work together:
+
+1. **The Orchestrator (`cmd/orchestrator`)**
+   A lightweight HTTP server that listens for Slack events (e.g., `#grafana-alerts`). When an alert fires, it extracts the context, formats an investigation prompt, and executes the LLM loop.
+2. **The MCP Server (`cmd/mcp-server`)**
+   The tool-provider. It communicates over `stdio` and acts as a bridge to your observability backends. The Orchestrator spawns this server as a subprocess to give the AI agent secure access to the infrastructure.
+
+---
+
+## The User Journey: AI-Assisted Incident Triage
+
+When a 500-error spike occurs and triggers a Grafana alert to Slack, here is what happens automatically:
+
+1. **The Trigger:** Grafana posts `HighLatencyCritical for checkout-api` to `#grafana-alerts`.
+2. **The Orchestrator:** Intercepts the Slack webhook, extracts the `thread_ts`, and wakes up the AI Agent.
+3. **Scoping the Impact (Thanos/Prometheus):** The AI uses `query_metrics_range` to pull PromQL data and summarizes the latency trend.
+4. **Finding the Bottleneck (Tempo):** The AI uses `find_slow_traces` (TraceQL) to find traces exceeding 2s, grabbing the slowest trace ID.
+5. **Pinpointing the Root Cause (Loki):** The AI uses `query_logs_by_trace_id` to correlate the trace ID with Loki logs, discovering a `connection pool exhausted` error.
+6. **Communication (Grafana & Slack):** The AI drops a marker on Grafana using `create_annotation` and posts a color-coded incident summary *directly into the Slack thread* of the original alert.
 
 ---
 
@@ -54,71 +61,39 @@ Monitoring an MCP server is tricky because:
 
 ## Development & Testing
 
-### 1. Build & Run Locally
+### 1. Build Both Binaries Locally
 ```bash
-# Build the binary
-go build -o mcp-server ./cmd/mcp-server
+# Build the MCP Server (The Tools)
+go build -o bin/mcp-server ./cmd/mcp-server
 
-# Run the unit tests (Mocked HTTP calls)
-go test -v ./internal/tools/...
+# Build the Orchestrator (The Listener)
+go build -o bin/orchestrator ./cmd/orchestrator
 ```
+### 2. Run the Orchestrator
 
-### 2. Manual Verification (MCP Inspector)
-The MCP Inspector provides a web UI to manually trigger tools and see their JSON-RPC request/response.
+Ensure your .env variables are set, then run the Orchestrator. It will listen on port 8080 and spawn the MCP server automatically when needed.
+
 ```bash
-npx @modelcontextprotocol/inspector ./mcp-server
+./bin/orchestrator
 ```
+(Tip: Use ngrok http 8080 to test Slack webhooks locally!)  
 
----
+### 3. Deploy to Kubernetes
 
-## Deployment & Docker
+This project is designed for production deployment on Kubernetes (e.g., GKE) using a unified multi-stage Docker image containing both binaries.
 
-### Local Observability Stack
-The provided `docker-compose.yaml` (coming soon/referenced) can be used to spin up a local development stack:
-```bash
-# Start the OTel Collector, Prometheus, Loki, Tempo, and Grafana
-docker compose up -d
-```
-
-### Containerizing the Server
-The `Dockerfile` provides a multi-stage build resulting in a minimal `scratch`-based image:
 ```bash
 # Build the production image
-docker build -t sre-mcp-server .
-```
+docker build -t us-central1-docker.pkg.dev/YOUR_PROJECT/YOUR_REPO/sre-agent:latest .
+``` 
+The k8s/ directory (if applicable) contains manifests to deploy the Orchestrator securely using Workload Identity, GCP Secret Manager CSI, and Managed SSL Certificates for secure Slack webhook ingestion.
 
----
-
-## Integration
-
-### Generic Configuration Template
-A template for your agent configuration is provided in `configs/mcp-config.json.example`. Use this to configure Gemini CLI, Claude Desktop, or Cursor.
-
-### Gemini CLI
-Add this to your `~/.gemini/settings.json`:
-```json
-{
-  "mcp_servers": {
-    "monitoring-lab": {
-      "command": "/absolute/path/to/mcp-server",
-      "env": {
-        "METRICS_URL": "http://localhost:9090",
-        "LOKI_URL": "http://localhost:3100",
-        "TEMPO_URL": "http://localhost:3200",
-        "ALERTMANAGER_URL": "http://localhost:9093",
-        "GRAFANA_URL": "http://localhost:3000"
-      }
-    }
-  }
-}
-```
-
----
 
 ## Configuration
 
 | Variable | Default | Description |
 |---|---|---|
+| `AI_API_KEY` | - | Required for AI API |
 | `METRICS_URL` | `http://localhost:9090` | Prometheus/Thanos endpoint |
 | `LOKI_URL` | `http://localhost:3100` | Loki endpoint |
 | `TEMPO_URL` | `http://localhost:3200` | Tempo endpoint |
